@@ -299,3 +299,103 @@
     (ok true)
   )
 )
+
+;; Resume Protocol Operations
+(define-public (resume-contract)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (var-set contract-paused false)
+    (ok true)
+  )
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Get Protocol Owner Address
+(define-read-only (get-contract-owner)
+  (ok CONTRACT-OWNER)
+)
+
+;; Get Total STX Pool Value
+(define-read-only (get-stx-pool)
+  (ok (var-get stx-pool))
+)
+
+;; Get Current Proposal Count
+(define-read-only (get-proposal-count)
+  (ok (var-get proposal-count))
+)
+
+;; PRIVATE FUNCTIONS
+
+;; Calculate User Tier Based on Stake Amount
+(define-private (get-tier-info (stake-amount uint))
+  (if (>= stake-amount u10000000)
+    {
+      tier-level: u3,
+      reward-multiplier: u200,
+    }
+    (if (>= stake-amount u5000000)
+      {
+        tier-level: u2,
+        reward-multiplier: u150,
+      }
+      {
+        tier-level: u1,
+        reward-multiplier: u100,
+      }
+    )
+  )
+)
+
+;; Calculate Time-Lock Bonus Multiplier
+(define-private (calculate-lock-multiplier (lock-period uint))
+  (if (>= lock-period u8640) ;; 2 months commitment
+    u150 ;; 1.5x reward boost
+    (if (>= lock-period u4320) ;; 1 month commitment
+      u125 ;; 1.25x reward boost
+      u100 ;; No time-lock bonus
+    )
+  )
+)
+
+;; Calculate Algorithmic Reward Distribution
+(define-private (calculate-rewards
+    (user principal)
+    (blocks uint)
+  )
+  (let (
+      (staking-position (unwrap! (map-get? StakingPositions user) u0))
+      (user-position (unwrap! (map-get? UserPositions user) u0))
+      (stake-amount (get amount staking-position))
+      (base-rate (var-get base-reward-rate))
+      (multiplier (get rewards-multiplier user-position))
+    )
+    (/ (* (* (* stake-amount base-rate) multiplier) blocks) u14400000)
+  )
+)
+
+;; Validate Proposal Description Quality
+(define-private (is-valid-description (desc (string-utf8 256)))
+  (and
+    (>= (len desc) u10) ;; Minimum meaningful description
+    (<= (len desc) u256) ;; Maximum description limit
+  )
+)
+
+;; Validate Lock Period Options
+(define-private (is-valid-lock-period (lock-period uint))
+  (or
+    (is-eq lock-period u0) ;; Flexible staking
+    (is-eq lock-period u4320) ;; 1 month lock
+    (is-eq lock-period u8640) ;; 2 month lock
+  )
+)
+
+;; Validate Governance Voting Period
+(define-private (is-valid-voting-period (period uint))
+  (and
+    (>= period u100) ;; Minimum voting duration
+    (<= period u2880) ;; Maximum voting duration (~1 day)
+  )
+)
